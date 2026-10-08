@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Four ascending signal bars inside the 66x66dp adaptive-icon safe zone (centre of 108x108). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M32,76h8v-12h-8z M44,76h8v-24h-8z M56,76h8v-36h-8z M68,76h8v-48h-8z" />
+</vector>

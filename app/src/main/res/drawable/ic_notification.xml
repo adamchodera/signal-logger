@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Four ascending signal bars; monochrome, as required for status-bar icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,19h3v-4h-3z M8,19h3v-8h-3z M13,19h3v-12h-3z M18,19h3v-16h-3z" />
+</vector>
