@@ -88,15 +88,44 @@ class RadioCollector(context: Context) {
         }
 
         val subscriptions: List<SubscriptionInfo> = readActiveSubscriptions(appContext)
+        // The default data SIM is the user's choice; with automatic data switching the SIM that really
+        // carries data right now (active data) can be the other one.
         val dataSubId: Int = safe { SubscriptionManager.getDefaultDataSubscriptionId() }
             ?: SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        val activeDataSubId: Int = safe { SubscriptionManager.getActiveDataSubscriptionId() }
+            ?: SubscriptionManager.INVALID_SUBSCRIPTION_ID
 
-        val sims: List<SimSample> = coroutineScope {
-            subscriptions
-                .map { sub -> async { readSim(manager, sub, dataSubId, probe) } }
-                .awaitAll()
+        val (sims: List<SimSample>, probeResult: ProbeResult?) = coroutineScope {
+            // The probe is the slowest part, so it runs once per sample, concurrently with the radio reads.
+            val probeJob: Deferred<ProbeResult>? = probe?.let { p -> async { p.run(p.defaultTimeoutMs) } }
+            val simJobs: List<Deferred<SimSample>> = subscriptions.map { sub ->
+                async { readSim(manager, sub, dataSubId, activeDataSubId) }
+            }
+            val readSims: List<SimSample> = simJobs.awaitAll()
+            readSims to probeJob?.await()
         }
-        return SampleRecord(epochMs, location, sims.sortedBy { it.slot })
+
+        val sorted: List<SimSample> = sims.sortedBy { it.slot }
+        return SampleRecord(epochMs, location, attachProbe(sorted, probeResult, activeDataSubId, dataSubId))
+    }
+
+    /**
+     * The probe result goes on the SIM whose network actually carried it; when the platform does not say
+     * which, on the active data SIM, and as a last resort on the default data SIM.
+     */
+    private fun attachProbe(
+        sims: List<SimSample>,
+        probeResult: ProbeResult?,
+        activeDataSubId: Int,
+        dataSubId: Int,
+    ): List<SimSample> {
+        if (probeResult == null) return sims
+        val invalid = SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        // first candidate that is a valid id of a SIM present in this sample, so the result is never dropped
+        val targetSubId: Int = listOfNotNull(probeResult.subId, activeDataSubId, dataSubId)
+            .firstOrNull { id -> id != invalid && sims.any { it.subId == id } }
+            ?: return sims
+        return sims.map { sim -> if (sim.subId == targetSubId) sim.copy(probe = probeResult) else sim }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -105,15 +134,10 @@ class RadioCollector(context: Context) {
         base: TelephonyManager,
         sub: SubscriptionInfo,
         dataSubId: Int,
-        probe: CellularProbe?,
-    ): SimSample = coroutineScope {
+        activeDataSubId: Int,
+    ): SimSample {
         val subId = sub.subscriptionId
-        val isDataSim = subId == dataSubId
         val tm: TelephonyManager = safe { base.createForSubscriptionId(subId) } ?: base
-
-        // The probe is the slowest part, so it runs concurrently with the radio reads.
-        val probeJob: Deferred<ProbeResult>? =
-            if (isDataSim && probe != null) async { probe.run(probe.defaultTimeoutMs) } else null
 
         val serviceState: ServiceState? = safe { tm.serviceState }
         val registeredPlmn: String? = safe { tm.networkOperator }?.takeIf { it.isNotBlank() }
@@ -124,19 +148,20 @@ class RadioCollector(context: Context) {
         val snapshots: List<CellSnapshot> = cells.mapNotNull { cell -> safe { toSnapshot(cell, elapsedNow) } }
         val serving: CellSnapshot? = ServingCellSelector.select(snapshots, registeredPlmn)
 
-        SimSample(
+        return SimSample(
             slot = sub.simSlotIndex,
             subId = subId,
             carrier = carrierName(sub),
             simPlmn = simPlmn(sub),
-            isDataSim = isDataSim,
+            isDataSim = subId == dataSubId,
+            isActiveData = subId == activeDataSubId,
             serviceState = serviceStateName(serviceState),
             psRegistered = serviceState?.let { packetSwitchedRegistered(it) },
             registeredPlmn = registeredPlmn,
             networkType = networkType,
             serving = serving,
             signal = safe { readSignal(tm) } ?: SignalSnapshot.EMPTY,
-            probe = probeJob?.await(),
+            probe = null, // attached afterwards by attachProbe, once we know which SIM carried it
         )
     }
 

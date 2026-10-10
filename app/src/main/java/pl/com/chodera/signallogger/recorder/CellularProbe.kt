@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.TelephonyNetworkSpecifier
 import android.os.SystemClock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +19,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Tests real internet access over the cellular network of the default data SIM. The request for a
+ * Tests real internet access over the cellular network Android currently uses for mobile data. With
+ * automatic data switching that can be the other SIM than the default data SIM, so the subscription id
+ * of the network is reported in [ProbeResult.subId] (when the system exposes it). The request for a
  * TRANSPORT_CELLULAR network keeps mobile data up and routes the probe around the train's Wi-Fi.
  */
 class CellularProbe(context: Context, intervalMs: Long) {
@@ -28,6 +31,10 @@ class CellularProbe(context: Context, intervalMs: Long) {
 
     @Volatile
     private var network: Network? = null
+
+    /** Subscription id of [network], read from its TelephonyNetworkSpecifier; null while unknown. */
+    @Volatile
+    private var networkSubId: Int? = null
 
     private var callback: ConnectivityManager.NetworkCallback? = null
 
@@ -47,12 +54,28 @@ class CellularProbe(context: Context, intervalMs: Long) {
             .build()
         val networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                if (this@CellularProbe.network != network) {
+                    // a different network (e.g. the other SIM took over data): the id of the old one is stale
+                    networkSubId = null
+                }
                 this@CellularProbe.network = network
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                runCatching {
+                    if (this@CellularProbe.network == null) {
+                        this@CellularProbe.network = network
+                    }
+                    if (this@CellularProbe.network == network) {
+                        networkSubId = (networkCapabilities.networkSpecifier as? TelephonyNetworkSpecifier)?.subscriptionId
+                    }
+                }
             }
 
             override fun onLost(network: Network) {
                 if (this@CellularProbe.network == network) {
                     this@CellularProbe.network = null
+                    networkSubId = null
                 }
             }
         }
@@ -65,17 +88,20 @@ class CellularProbe(context: Context, intervalMs: Long) {
     }
 
     suspend fun run(timeoutMs: Int = defaultTimeoutMs): ProbeResult {
-        val cellular = network ?: return ProbeResult(ok = false, ms = null)
+        val cellular = network ?: return ProbeResult(ok = false, ms = null, subId = null)
+        // captured now, so the result is attributed to the network the probe really started on
+        val subId = networkSubId
         val result = CompletableDeferred<ProbeResult>()
-        ioScope.launch { result.complete(probeBlocking(cellular, timeoutMs)) }
+        ioScope.launch { result.complete(probeBlocking(cellular, timeoutMs, subId)) }
         return withTimeoutOrNull(timeoutMs + HARD_LIMIT_SLACK_MS) { result.await() }
-            ?: ProbeResult(ok = false, ms = null)
+            ?: ProbeResult(ok = false, ms = null, subId = subId)
     }
 
     fun stop() {
         val registered = callback
         callback = null
         network = null
+        networkSubId = null
         if (registered != null) {
             try {
                 connectivityManager?.unregisterNetworkCallback(registered)
@@ -86,7 +112,7 @@ class CellularProbe(context: Context, intervalMs: Long) {
         ioScope.cancel()
     }
 
-    private fun probeBlocking(cellular: Network, timeoutMs: Int): ProbeResult {
+    private fun probeBlocking(cellular: Network, timeoutMs: Int, subId: Int?): ProbeResult {
         var connection: HttpURLConnection? = null
         return try {
             val opened = cellular.openConnection(URL(PROBE_URL)) as HttpURLConnection
@@ -98,9 +124,9 @@ class CellularProbe(context: Context, intervalMs: Long) {
             val startedAt = SystemClock.elapsedRealtime()
             val code = opened.responseCode
             val elapsed = SystemClock.elapsedRealtime() - startedAt
-            ProbeResult(ok = code == HttpURLConnection.HTTP_NO_CONTENT, ms = elapsed)
+            ProbeResult(ok = code == HttpURLConnection.HTTP_NO_CONTENT, ms = elapsed, subId = subId)
         } catch (_: Exception) {
-            ProbeResult(ok = false, ms = null)
+            ProbeResult(ok = false, ms = null, subId = subId)
         } finally {
             connection?.disconnect()
         }

@@ -12,7 +12,7 @@ class DisplayHelpersTest {
         signal: SignalSnapshot = SignalSnapshot.EMPTY,
         serving: CellSnapshot? = null,
     ) = SimSample(
-        slot = 0, subId = 1, carrier = carrier, simPlmn = null, isDataSim = false,
+        slot = 0, subId = 1, carrier = carrier, simPlmn = null, isDataSim = false, isActiveData = false,
         serviceState = serviceState, psRegistered = null, registeredPlmn = null,
         networkType = networkType, serving = serving, signal = signal, probe = null,
     )

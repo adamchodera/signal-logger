@@ -9,13 +9,13 @@ import java.util.Locale
 /**
  * CSV serialisation of [SampleRecord]s. The column order is a contract with the analysis scripts.
  *
- * Every row has exactly [COLUMN_COUNT] fields: 3 (time + event) + 5 (location) + 27 (SIM) + 1 (note).
+ * Every row has exactly [COLUMN_COUNT] fields: 3 (time + event) + 5 (location) + 28 (SIM) + 1 (note).
  */
 object CsvFormat {
 
     const val HEADER: String =
         "timestamp_iso,epoch_ms,event,lat,lon,gps_acc_m,gps_age_s,speed_kmh," +
-            "sim_slot,sub_id,carrier,sim_plmn,is_data_sim,service_state,ps_registered,reg_plmn," +
+            "sim_slot,sub_id,carrier,sim_plmn,is_data_sim,is_active_data,service_state,ps_registered,reg_plmn," +
             "network_type,rat,cell_id,tac,pci,arfcn,bands,cell_age_s," +
             "level,rsrp,rsrq,sinr,rssi,dbm,nr_rsrp,nr_rsrq,nr_sinr,probe_ok,probe_ms,note"
 
@@ -27,7 +27,7 @@ object CsvFormat {
     const val EVENT_MARK = "MARK"
 
     private const val LOCATION_COLUMNS = 5
-    private const val SIM_COLUMNS = 27
+    private const val SIM_COLUMNS = 28
 
     /** One line per SIM (event SAMPLE); a single NO_SIM line when no SIM is active. */
     fun rows(record: SampleRecord, zone: ZoneId): List<String> {
@@ -96,6 +96,7 @@ object CsvFormat {
             sim.carrier,                                            // carrier
             sim.simPlmn,                                            // sim_plmn
             flag(sim.isDataSim),                                    // is_data_sim
+            flag(sim.isActiveData),                                 // is_active_data
             sim.serviceState,                                       // service_state
             flag(sim.psRegistered),                                 // ps_registered
             sim.registeredPlmn,                                     // reg_plmn

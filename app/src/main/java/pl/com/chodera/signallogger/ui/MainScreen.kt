@@ -361,7 +361,11 @@ private fun SimRow(sim: SimSample) {
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
             )
-            if (sim.isDataSim) DataSimBadge()
+            if (sim.isActiveData) {
+                DataSimBadge(text = "dane teraz")
+            } else if (sim.isDataSim) {
+                DataSimBadge(text = "domyślna do danych")
+            }
         }
         Text(
             text = "${serviceStateLabelPl(sim.serviceState)} · ${sim.techLabel}",
@@ -382,14 +386,14 @@ private fun SimRow(sim: SimSample) {
 }
 
 @Composable
-private fun DataSimBadge() {
+private fun DataSimBadge(text: String) {
     Surface(
         shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
         Text(
-            text = "SIM danych",
+            text = text,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )

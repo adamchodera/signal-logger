@@ -14,7 +14,7 @@ class CsvFormatTest {
 
     private val expectedHeader =
         "timestamp_iso,epoch_ms,event,lat,lon,gps_acc_m,gps_age_s,speed_kmh,sim_slot,sub_id,carrier," +
-            "sim_plmn,is_data_sim,service_state,ps_registered,reg_plmn,network_type,rat,cell_id,tac,pci," +
+            "sim_plmn,is_data_sim,is_active_data,service_state,ps_registered,reg_plmn,network_type,rat,cell_id,tac,pci," +
             "arfcn,bands,cell_age_s,level,rsrp,rsrq,sinr,rssi,dbm,nr_rsrp,nr_rsrq,nr_sinr,probe_ok," +
             "probe_ms,note"
 
@@ -82,6 +82,7 @@ class CsvFormatTest {
         slot: Int = 0,
         carrier: String = "Orange",
         isData: Boolean = true,
+        isActive: Boolean = isData,
         serving: CellSnapshot? = fullCell,
         signal: SignalSnapshot = fullSignal,
         probe: ProbeResult? = ProbeResult(true, 123),
@@ -91,6 +92,7 @@ class CsvFormatTest {
         carrier = carrier,
         simPlmn = "26003",
         isDataSim = isData,
+        isActiveData = isActive,
         serviceState = "IN_SERVICE",
         psRegistered = true,
         registeredPlmn = "26003",
@@ -107,15 +109,16 @@ class CsvFormatTest {
     @Test
     fun headerMatchesTheContract() {
         assertEquals(expectedHeader, CsvFormat.HEADER)
-        assertEquals(36, CsvFormat.COLUMNS.size)
-        assertEquals(36, splitCsv(CsvFormat.HEADER).size)
+        assertEquals(37, CsvFormat.COLUMNS.size)
+        assertEquals(37, splitCsv(CsvFormat.HEADER).size)
+        assertEquals(CsvFormat.COLUMNS.indexOf("is_data_sim") + 1, CsvFormat.COLUMNS.indexOf("is_active_data"))
     }
 
     @Test
     fun everyRowBuilderProducesAsManyColumnsAsTheHeader() {
         val headerColumns = splitCsv(CsvFormat.HEADER).size
         val empty = SimSample(
-            slot = 1, subId = 2, carrier = "", simPlmn = null, isDataSim = false, serviceState = "UNKNOWN",
+            slot = 1, subId = 2, carrier = "", simPlmn = null, isDataSim = false, isActiveData = false, serviceState = "UNKNOWN",
             psRegistered = null, registeredPlmn = null, networkType = "UNKNOWN", serving = null,
             signal = SignalSnapshot.EMPTY, probe = null,
         )
@@ -137,7 +140,10 @@ class CsvFormatTest {
 
     @Test
     fun oneLinePerSimWithSampleEvent() {
-        val rows = CsvFormat.rows(SampleRecord(1_700_000_000_123, fix, listOf(sim(0), sim(1, "Play", false, probe = null))), utc)
+        val rows = CsvFormat.rows(
+            SampleRecord(1_700_000_000_123, fix, listOf(sim(0), sim(1, "Play", false, probe = null))),
+            utc,
+        )
 
         assertEquals(2, rows.size)
         val first = splitCsv(rows[0])
@@ -149,6 +155,34 @@ class CsvFormatTest {
         assertEquals("Play", second.col("carrier"))
         assertEquals("1", first.col("is_data_sim"))
         assertEquals("0", second.col("is_data_sim"))
+        assertEquals("1", first.col("is_active_data"))
+        assertEquals("0", second.col("is_active_data"))
+    }
+
+    @Test
+    fun defaultDataSimAndActiveDataSimAreIndependentColumns() {
+        // Automatic data switching: SIM 1 is the user's default, but SIM 2 currently carries the data.
+        val rows = CsvFormat.rows(
+            SampleRecord(
+                1_700_000_000_123,
+                fix,
+                listOf(
+                    sim(0, "Orange", isData = true, isActive = false, probe = null),
+                    sim(1, "Play", isData = false, isActive = true),
+                ),
+            ),
+            utc,
+        )
+
+        val first = splitCsv(rows[0])
+        val second = splitCsv(rows[1])
+        assertEquals("1", first.col("is_data_sim"))
+        assertEquals("0", first.col("is_active_data"))
+        assertEquals("", first.col("probe_ok"))
+        assertEquals("0", second.col("is_data_sim"))
+        assertEquals("1", second.col("is_active_data"))
+        assertEquals("1", second.col("probe_ok"))
+        assertEquals("123", second.col("probe_ms"))
     }
 
     @Test
@@ -164,6 +198,8 @@ class CsvFormatTest {
         assertEquals("123.5", row.col("speed_kmh"))
         assertEquals("1", row.col("sub_id"))
         assertEquals("26003", row.col("sim_plmn"))
+        assertEquals("1", row.col("is_data_sim"))
+        assertEquals("1", row.col("is_active_data"))
         assertEquals("IN_SERVICE", row.col("service_state"))
         assertEquals("1", row.col("ps_registered"))
         assertEquals("26003", row.col("reg_plmn"))
@@ -195,6 +231,16 @@ class CsvFormatTest {
 
         assertEquals("0", row.col("probe_ok"))
         assertEquals("", row.col("probe_ms"))
+    }
+
+    @Test
+    fun probeSubIdIsNotWrittenAsAnExtraColumn() {
+        val line = CsvFormat.rows(SampleRecord(0, fix, listOf(sim(probe = ProbeResult(true, 87, subId = 2)))), utc).single()
+        val row = splitCsv(line)
+
+        assertEquals(CsvFormat.COLUMN_COUNT, row.size)
+        assertEquals("1", row.col("probe_ok"))
+        assertEquals("87", row.col("probe_ms"))
     }
 
     @Test

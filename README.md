@@ -12,7 +12,7 @@ Jedna próbka co 2 / 5 / 10 s (do wyboru), a w niej:
   - sieć, w której karta jest zarejestrowana, typ sieci danych (LTE, NR, HSPA+…),
   - obsługująca komórka: identyfikator komórki, TAC, PCI, kanał (ARFCN), pasma, wiek odczytu,
   - sygnał: poziom 0–4, RSRP / RSRQ / SINR / RSSI (LTE), wartości NR, dBm,
-- **test internetu** (tylko karta danych): zapytanie HTTPS `generate_204` wymuszone przez sieć komórkową, nawet gdy telefon jest podłączony do Wi-Fi pociągu — wynik OK/brak oraz czas odpowiedzi,
+- **test internetu** (jeden na próbkę, zapisany przy karcie, której sieć go przeniosła): zapytanie HTTPS `generate_204` wymuszone przez sieć komórkową, nawet gdy telefon jest podłączony do Wi-Fi pociągu — wynik OK/brak oraz czas odpowiedzi,
 - **znaczniki** wstawiane ręcznie przyciskiem („nie działa” — brak internetu).
 
 Gdy żadna karta SIM nie jest aktywna, w pliku i tak pojawia się wiersz `NO_SIM` z pozycją — przerwa w logu nigdy nie wygląda jak „brak danych”.
@@ -24,6 +24,8 @@ Nagrywanie działa jako usługa pierwszoplanowa (z powiadomieniem, przyciskami �
 **GitHub Actions (zalecane).** APK jest budowany automatycznie przy każdym pushu na `main` (workflow `.github/workflows/build.yml` uruchamia testy jednostkowe i `assembleDebug`) i publikowany w zakładce **Releases** repozytorium: tag `build-N` (N = numer przebiegu), plik `SignalLogger-debug.apk`. Wystarczy pobrać plik na telefon i zainstalować.
 
 > To jest **debugowy** APK, więc instalacja wymaga zezwolenia na instalowanie aplikacji z nieznanych źródeł (Android zapyta o to przy otwarciu pliku — zezwól dla przeglądarki lub menedżera plików, z którego instalujesz).
+
+**Aktualizacja aplikacji.** Od wersji 1.1 kompilacje są podpisywane stałym kluczem zapisanym w repozytorium (`app/debug.keystore`), więc nowe wersje instalują się na starych bez odinstalowywania i bez utraty zapisanych logów. Przejście z wersji 1.0 wymaga jednak odinstalowania jej wcześniej (była podpisana innym, automatycznie wygenerowanym kluczem) — a to **usuwa zapisane logi**, więc najpierw je wyeksportuj (przycisk „Udostępnij”). Klucz jest publiczny, więc to rozwiązanie wystarcza dla prywatnej aplikacji, ale nie do publikacji w sklepie.
 
 **Lokalnie.** Otwórz folder projektu w Android Studio (File → Open), poczekaj na synchronizację Gradle i uruchom aplikację (Run). Jeśli Android Studio zaproponuje aktualizację wtyczki Android Gradle Plugin, możesz ją zaakceptować. Z wiersza poleceń:
 
@@ -55,7 +57,7 @@ Po zatrzymaniu nagrywania plik pojawia się na liście **„Zapisane sesje”**.
 
 ## Ograniczenia
 
-- **Test internetu dotyczy tylko domyślnej karty do transmisji danych.** Żeby przetestować drugą sieć, na trasie powrotnej zmień kartę danych w ustawieniach telefonu (wiersze drugiej karty mają wtedy `probe_ok` / `probe_ms`). Dla karty bez testu zostają pomiary radiowe i rejestracja, ale nie wiadomo, czy „internet naprawdę działa”.
+- **Test internetu dotyczy tylko jednej karty naraz** — tej, przez której sieć komórkową telefon aktualnie przesyła dane (`is_active_data = 1`; przy automatycznym przełączaniu danych może to być inna karta niż domyślna, `is_data_sim`). Gdy system nie podaje, która to karta, wynik trafia do karty aktywnej dla danych, a w ostateczności do domyślnej. Żeby przetestować drugą sieć, na trasie powrotnej zmień kartę danych w ustawieniach telefonu. Dla karty bez testu zostają pomiary radiowe i rejestracja, ale nie wiadomo, czy „internet naprawdę działa”.
 - Pomiar sprawdza łączność z jednym serwerem (`connectivitycheck.gstatic.com`); to dobry wskaźnik, ale nie dowód, że działa każda usługa.
 - **Pendolino i inne nowoczesne składy tłumią każdą sieć** (szyby z powłoką, metalowy kadłub) — bezwzględne wartości dBm w pociągu będą gorsze niż na zewnątrz; porównuj sieci *względem siebie*, nie z wartościami „książkowymi”.
 - **Wartości zależą od modemu i producenta.** Niektóre pola mogą być puste (np. SINR, pasma, RSRQ) albo odświeżane rzadko; `cell_age_s` pokazuje, jak stary jest odczyt komórki.
@@ -65,7 +67,7 @@ Po zatrzymaniu nagrywania plik pojawia się na liście **„Zapisane sesje”**.
 
 ## Format CSV — słownik kolumn
 
-Kodowanie UTF-8, separator `,`, kropka dziesiętna, wartości puste = brak danych, pola z przecinkiem / cudzysłowem / znakiem nowej linii w cudzysłowie (RFC 4180). **36 kolumn**, w tej kolejności. Wiersz `SAMPLE` powstaje osobno dla każdej karty SIM — wiersze jednej próbki mają ten sam `epoch_ms` i pozycję.
+Kodowanie UTF-8, separator `,`, kropka dziesiętna, wartości puste = brak danych, pola z przecinkiem / cudzysłowem / znakiem nowej linii w cudzysłowie (RFC 4180). **37 kolumn**, w tej kolejności. Wiersz `SAMPLE` powstaje osobno dla każdej karty SIM — wiersze jednej próbki mają ten sam `epoch_ms` i pozycję.
 
 | # | Kolumna | Opis |
 |---|---|---|
@@ -82,31 +84,32 @@ Kodowanie UTF-8, separator `,`, kropka dziesiętna, wartości puste = brak danyc
 | 11 | `carrier` | Nazwa operatora karty. |
 | 12 | `sim_plmn` | MCC+MNC karty SIM (np. `26003`). |
 | 13 | `is_data_sim` | `1` — karta jest domyślną kartą do transmisji danych, `0` — nie. |
-| 14 | `service_state` | `IN_SERVICE`, `OUT_OF_SERVICE`, `EMERGENCY_ONLY`, `POWER_OFF`, `UNKNOWN`. |
-| 15 | `ps_registered` | `1` — karta jest zarejestrowana w domenie pakietowej (dane) w sieci komórkowej, `0` — nie. |
-| 16 | `reg_plmn` | PLMN sieci, w której karta jest aktualnie zarejestrowana (`TelephonyManager.networkOperator`). Różni się od `sim_plmn` w roamingu. |
-| 17 | `network_type` | Typ sieci danych: `LTE`, `NR`, `HSPAP`, `HSPA`, `HSDPA`, `HSUPA`, `UMTS`, `EDGE`, `GPRS`, `IWLAN`, `UNKNOWN` (inne wartości jako liczba). |
-| 18 | `rat` | Technologia obsługującej komórki: `GSM`, `WCDMA`, `LTE`, `NR`, `OTHER`. |
-| 19 | `cell_id` | Identyfikator komórki: LTE — `ci`, NR — `nci`, WCDMA/GSM — `cid`. |
-| 20 | `tac` | LTE/NR — TAC; WCDMA/GSM — LAC. |
-| 21 | `pci` | LTE/NR — PCI; WCDMA — PSC; GSM — BSIC. |
-| 22 | `arfcn` | LTE — EARFCN; NR — NR-ARFCN; WCDMA — UARFCN; GSM — ARFCN. |
-| 23 | `bands` | Numery pasm rozdzielone `;` (np. `3;20`); tylko LTE/NR. |
-| 24 | `cell_age_s` | Wiek odczytu komórki w sekundach. |
-| 25 | `level` | Poziom sygnału systemu, 0–4. |
-| 26 | `rsrp` | LTE RSRP (dBm). |
-| 27 | `rsrq` | LTE RSRQ (dB). |
-| 28 | `sinr` | LTE SINR / RSSNR (dB). |
-| 29 | `rssi` | LTE RSSI (dBm). |
-| 30 | `dbm` | Moc sygnału (dBm) głównej technologii: LTE, a przy jej braku NR, WCDMA lub GSM. |
-| 31 | `nr_rsrp` | NR SS-RSRP (dBm) — samodzielne 5G albo część 5G w NSA. |
-| 32 | `nr_rsrq` | NR SS-RSRQ (dB). |
-| 33 | `nr_sinr` | NR SS-SINR (dB). |
-| 34 | `probe_ok` | Test internetu: `1` — odpowiedź HTTP 204, `0` — niepowodzenie. Tylko karta danych, gdy test jest włączony. |
-| 35 | `probe_ms` | Czas odpowiedzi testu w ms (puste, gdy brak odpowiedzi). |
-| 36 | `note` | Notatka znacznika (tylko `MARK`). |
+| 14 | `is_active_data` | `1` — przez tę kartę telefon w tej chwili przesyła dane (może różnić się od domyślnej przy automatycznym przełączaniu danych), `0` — nie. |
+| 15 | `service_state` | `IN_SERVICE`, `OUT_OF_SERVICE`, `EMERGENCY_ONLY`, `POWER_OFF`, `UNKNOWN`. |
+| 16 | `ps_registered` | `1` — karta jest zarejestrowana w domenie pakietowej (dane) w sieci komórkowej, `0` — nie. |
+| 17 | `reg_plmn` | PLMN sieci, w której karta jest aktualnie zarejestrowana (`TelephonyManager.networkOperator`). Różni się od `sim_plmn` w roamingu. |
+| 18 | `network_type` | Typ sieci danych: `LTE`, `NR`, `HSPAP`, `HSPA`, `HSDPA`, `HSUPA`, `UMTS`, `EDGE`, `GPRS`, `IWLAN`, `UNKNOWN` (inne wartości jako liczba). |
+| 19 | `rat` | Technologia obsługującej komórki: `GSM`, `WCDMA`, `LTE`, `NR`, `OTHER`. |
+| 20 | `cell_id` | Identyfikator komórki: LTE — `ci`, NR — `nci`, WCDMA/GSM — `cid`. |
+| 21 | `tac` | LTE/NR — TAC; WCDMA/GSM — LAC. |
+| 22 | `pci` | LTE/NR — PCI; WCDMA — PSC; GSM — BSIC. |
+| 23 | `arfcn` | LTE — EARFCN; NR — NR-ARFCN; WCDMA — UARFCN; GSM — ARFCN. |
+| 24 | `bands` | Numery pasm rozdzielone `;` (np. `3;20`); tylko LTE/NR. |
+| 25 | `cell_age_s` | Wiek odczytu komórki w sekundach. |
+| 26 | `level` | Poziom sygnału systemu, 0–4. |
+| 27 | `rsrp` | LTE RSRP (dBm). |
+| 28 | `rsrq` | LTE RSRQ (dB). |
+| 29 | `sinr` | LTE SINR / RSSNR (dB). |
+| 30 | `rssi` | LTE RSSI (dBm). |
+| 31 | `dbm` | Moc sygnału (dBm) głównej technologii: LTE, a przy jej braku NR, WCDMA lub GSM. |
+| 32 | `nr_rsrp` | NR SS-RSRP (dBm) — samodzielne 5G albo część 5G w NSA. |
+| 33 | `nr_rsrq` | NR SS-RSRQ (dB). |
+| 34 | `nr_sinr` | NR SS-SINR (dB). |
+| 35 | `probe_ok` | Test internetu: `1` — odpowiedź HTTP 204, `0` — niepowodzenie. Wynik jest zapisany w wierszu tej karty, której sieć przeniosła test (zwykle karta z `is_active_data = 1`); na pozostałych kartach i przy wyłączonym teście pole jest puste. |
+| 36 | `probe_ms` | Czas odpowiedzi testu w ms (puste, gdy brak odpowiedzi). Tak samo jak `probe_ok`: wiersz karty, której sieć przeniosła test. |
+| 37 | `note` | Notatka znacznika (tylko `MARK`). |
 
-Wskazówka do analizy: łącz wiersze po `epoch_ms`; „obie sieci bez zasięgu” to próbki, w których dla obu kart `service_state != IN_SERVICE` albo sygnał (`rsrp` / `dbm`) jest poniżej Twojego progu, a dla karty danych dodatkowo `probe_ok = 0`.
+Wskazówka do analizy: łącz wiersze po `epoch_ms`; „obie sieci bez zasięgu” to próbki, w których dla obu kart `service_state != IN_SERVICE` albo sygnał (`rsrp` / `dbm`) jest poniżej Twojego progu, a dla karty, która przenosiła dane (`is_active_data = 1`), dodatkowo `probe_ok = 0`.
 
 ## Struktura projektu
 

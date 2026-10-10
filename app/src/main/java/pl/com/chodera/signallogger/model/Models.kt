@@ -55,7 +55,8 @@ data class SignalSnapshot(
     }
 }
 
-data class ProbeResult(val ok: Boolean, val ms: Long?)
+/** [subId] = subscription id of the cellular network the probe actually used, when known. */
+data class ProbeResult(val ok: Boolean, val ms: Long?, val subId: Int? = null)
 
 data class SimSample(
     val slot: Int,
@@ -63,13 +64,14 @@ data class SimSample(
     val carrier: String,
     val simPlmn: String?,
     val isDataSim: Boolean,
+    val isActiveData: Boolean,
     val serviceState: String,        // IN_SERVICE / OUT_OF_SERVICE / EMERGENCY_ONLY / POWER_OFF / UNKNOWN
     val psRegistered: Boolean?,      // packet-switched (data) registration on WWAN
     val registeredPlmn: String?,     // TelephonyManager.networkOperator for that sub, "" -> null
     val networkType: String,         // dataNetworkType name: LTE, NR, HSPAP, UMTS, EDGE, GPRS, UNKNOWN...
     val serving: CellSnapshot?,
     val signal: SignalSnapshot,
-    val probe: ProbeResult?,         // only for the data SIM, null otherwise
+    val probe: ProbeResult?,         // only on the SIM whose network carried the probe (falls back to the active data SIM), null otherwise
 )
 
 data class LocationFix(
